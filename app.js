@@ -84,7 +84,7 @@ D.evenements.forEach(e => { e.theme = e.theme || "théologique"; e.p = e.p || []
 
 // ---------------------------------------------------------------- État (et lien partageable)
 const etat = {
-  mode: "cles", minCles: 5, minEgo: 3,
+  mode: "poles", minCles: 5, minEgo: 3, minPoles: 50,
   debut: A0, fin: A1, min: 10, seulCles: false, noms: true, fiab: "toutes", couleurs: "poles",
   groupes: new Set(Object.keys(COULEURS)), themes: new Set(Object.keys(THEMES)), communautes: null,
   sel: null,          // {type:"p", id} | {type:"l", k} | {type:"chemin", noeuds:[], liens:[]} | {type:"s", id}
@@ -104,7 +104,8 @@ function versAdresse(){
   if (etat.debut !== A0) q.set("de", etat.debut);
   if (etat.fin !== A1) q.set("a", etat.fin);
   if (etat.min !== 10) q.set("min", etat.min);
-  if (etat.mode !== "cles") q.set("mode", etat.mode);
+  if (etat.mode !== "poles") q.set("mode", etat.mode);
+  if (etat.sel && etat.sel.type === "pole") q.set("pole", etat.sel.g);
   if (etat.minCles !== 5) q.set("minl", etat.minCles);
   if (etat.minEgo !== 3) q.set("mine", etat.minEgo);
   if (etat.seulCles) q.set("cles", 1);
@@ -134,7 +135,8 @@ function depuisAdresse(){
   if (q.has("couleurs")) etat.couleurs = q.get("couleurs");
   if (q.has("vue")) etat.vue = q.get("vue");
   if (q.has("ego")) etat.ego = +q.get("ego");
-  if (q.has("mode")) etat.mode = q.get("mode") === "complet" ? "complet" : "cles";
+  if (q.has("mode")) etat.mode = ["complet", "cles", "poles"].includes(q.get("mode")) ? q.get("mode") : "poles";
+  if (q.has("pole")) { etat.sel = {type: "pole", g: q.get("pole")}; if (!q.has("mode")) etat.mode = "cles"; }
   if (q.has("minl")) etat.minCles = +q.get("minl");
   if (q.has("mine")) etat.minEgo = +q.get("mine");
   if (q.has("sans")) q.get("sans").split(",").forEach(g => etat.groupes.delete(g));
@@ -221,14 +223,35 @@ function dispositionEgo(){
 }
 function appliquerPositions(){
   egoActif = false;
-  if (etat.mode === "cles") graphe.updateEachNodeAttributes((n, a) => { const g = geoPos.get(+n); return g ? {...a, x: g[0], y: g[1]} : a; });
+  graphe.forEachNode((n) => { if (estPole(n)){ const g = n.slice(5); graphe.mergeNodeAttributes(n, {x: POLES_XY[g][0] * ECHELLE, y: POLES_XY[g][1] * ECHELLE}); } });
+  if (etat.mode === "cles" || etat.mode === "poles") graphe.updateEachNodeAttributes((n, a) => { const g = estPole(n) ? null : geoPos.get(+n); return g ? {...a, x: g[0], y: g[1]} : a; });
   else if (positionsFA) graphe.updateEachNodeAttributes((n, a) => { const f = positionsFA.get(n); return f ? {...a, x: f[0], y: f[1]} : a; });
 }
 for (const [k, e] of liens) graphe.addEdge(String(e.a), String(e.b), {k, weight: Math.log(1 + e.lettres.length)});
+// Niveau « Pôles » : un nœud par pôle, un lien par paire de pôles (lettres entre leurs membres)
+const POLES_ACTIFS = [...new Set(P.map(p => p.g))].filter(g => POLES_XY[g] && g !== "autre");
+for (const g of POLES_ACTIFS) graphe.addNode("pole:" + g, {x: POLES_XY[g][0] * ECHELLE, y: POLES_XY[g][1] * ECHELLE, label: NOMS_GROUPES[g] || g, color: COULEURS[g] || COULEURS.autre, size: 5});
+for (let a = 0; a < POLES_ACTIFS.length; a++) for (let b = a + 1; b < POLES_ACTIFS.length; b++)
+  graphe.addEdge("pole:" + POLES_ACTIFS[a], "pole:" + POLES_ACTIFS[b], {k: "pp:" + [POLES_ACTIFS[a], POLES_ACTIFS[b]].sort().join("|"), weight: 0});
+const estPole = n => typeof n === "string" && n.startsWith("pole:");
+const compteP = new Map(), compteLienP = new Map(), interneP = new Map();
+function recompterPoles(){
+  compteP.clear(); compteLienP.clear(); interneP.clear();
+  L.forEach((l, i) => {
+    if (!garder(i)) return;
+    const ge = new Set(l[1].map(x => P[x].g)), gd = new Set(l[2].map(x => P[x].g));
+    for (const g of new Set([...ge, ...gd])) compteP.set(g, (compteP.get(g) || 0) + 1);
+    for (const a of ge) for (const b of gd){
+      if (a === b){ interneP.set(a, (interneP.get(a) || 0) + 1); continue; }
+      const k = "pp:" + [a, b].sort().join("|"); compteLienP.set(k, (compteLienP.get(k) || 0) + 1);
+    }
+  });
+}
 
 const compte = new Map(), compteLien = new Map();
 function recompter(){
   compte.clear(); compteLien.clear();
+  if (etat.mode === "poles") recompterPoles();
   for (const [k, e] of liens){ let n = 0; for (const i of e.lettres) if (garder(i)) n++; if (n) compteLien.set(k, n); }
   P.forEach((p, i) => { let n = 0; for (const j of parPersonne[i]) if (garder(j)) n++; if (n) compte.set(i, n); });
   etat.egoSet = null;
@@ -249,6 +272,7 @@ function couleurDe(i){
   return COULEURS[P[i].g] || COULEURS.autre;
 }
 function visible(i){
+  if (etat.mode === "poles") return false;
   const p = P[i], n = compte.get(i) || 0;
   if (!n) return false;
   if (etat.mode === "cles"){
@@ -273,6 +297,11 @@ function visible(i){
 }
 function voisinsSel(){
   const s = etat.sel; if (!s) return null;
+  if (s.type === "pole"){
+    const m = new Set([...geoPos.keys()].filter(i => P[i].g === s.g));
+    for (const i of [...m]) if (graphe.hasNode(String(i))) for (const y of graphe.neighbors(String(i))) { const yy = +y; if (P[yy] && P[yy].cle && (compteLien.get(cleLien(i, yy)) || 0) >= etat.minCles) m.add(yy); }
+    return m;
+  }
   if (s.type === "p") return new Set(graphe.hasNode(String(s.id)) ? graphe.neighbors(String(s.id)).map(Number).filter(j => compteLien.has(cleLien(s.id, j))) : []);
   if (s.type === "l") { const e = liens.get(s.k); return new Set([e.a, e.b]); }
   if (s.type === "chemin") return new Set(s.noeuds);
@@ -284,6 +313,13 @@ const rendu = new Ctor(graphe, $("#sigma"), {
   enableEdgeClickEvents: true, enableEdgeHoverEvents: true, labelFont: "Georgia, serif", labelSize: 12,
   labelRenderedSizeThreshold: 7, defaultEdgeColor: "#bbb", zIndex: true,
   nodeReducer: (n, a) => {
+    if (estPole(n)){
+      const g = n.slice(5), c = compteP.get(g) || 0;
+      if (etat.mode !== "poles" || !c || !etat.groupes.has(g)) return {...a, hidden: true};
+      const r = {...a, size: Math.min(42, 6 + Math.sqrt(c) * 0.32), label: `${NOMS_GROUPES[g] || g} (${nf(c)})`, forceLabel: true, zIndex: 2};
+      if (etat.sel && etat.sel.type === "pp" && !etat.sel.g.includes(g)){ r.color = css("--line"); }
+      return r;
+    }
     const i = +n;
     if (!visible(i)) return {...a, hidden: true};
     const c = compte.get(i);
@@ -295,7 +331,12 @@ const rendu = new Ctor(graphe, $("#sigma"), {
     const r = {...a, color: couleurDe(i), size: taille};
     if (P[i].cle){ r.forceLabel = etat.mode === "cles" ? (etat.noms && tetesDePole.has(i)) : etat.noms; r.zIndex = 2; }
     const s = etat.sel;
-    if (s && s.type !== "s"){
+    if (s && s.type === "pole"){
+      if (P[i].g === s.g){ r.forceLabel = true; r.zIndex = 3; r.highlighted = true; }
+      else if (!voisins.has(i)){ r.color = css("--line"); r.label = ""; r.forceLabel = false; r.zIndex = 0; }
+      return r;
+    }
+    if (s && s.type !== "s" && s.type !== "pp"){
       const enjeu = (s.type === "p" && s.id === i) || (s.type === "l" && voisins.has(i)) || (s.type === "chemin" && voisins.has(i));
       if (enjeu){ r.highlighted = true; r.forceLabel = true; r.zIndex = 3; }
       else if (s.type === "p" && voisins.has(i)) r.forceLabel = egoActif ? egoNoms.has(i) : (r.forceLabel || c >= 10);
@@ -304,6 +345,14 @@ const rendu = new Ctor(graphe, $("#sigma"), {
     return r;
   },
   edgeReducer: (e, a) => {
+    if (a.k.startsWith("pp:")){
+      if (etat.mode !== "poles") return {...a, hidden: true};
+      const n = compteLienP.get(a.k) || 0, [g1, g2] = a.k.slice(3).split("|");
+      if (n < etat.minPoles || !etat.groupes.has(g1) || !etat.groupes.has(g2)) return {...a, hidden: true};
+      const sel = etat.sel && etat.sel.type === "pp" && etat.sel.k === a.k;
+      return {...a, size: 0.5 + Math.log(1 + n) * 1.3, color: sel ? css("--accent") : melange(css("--bar") || "#b9a88d", css("--bg") || "#f6f1e7", 0.7), zIndex: sel ? 2 : 0};
+    }
+    if (etat.mode === "poles") return {...a, hidden: true};
     const n = compteLien.get(a.k);
     const [s, t] = graphe.extremities(e);
     if (!n || !visible(+s) || !visible(+t)) return {...a, hidden: true};
@@ -312,7 +361,11 @@ const rendu = new Ctor(graphe, $("#sigma"), {
       ? {...a, size: 0.4 + Math.log(1 + n) * 0.8, color: melange(css("--bar") || "#b9a88d", css("--bg") || "#f6f1e7", 0.75)}
       : {...a, size: 0.3 + Math.log(1 + n) * 0.7, color: melange(css("--bar") || "#b9a88d", css("--bg") || "#f6f1e7", 0.6)};
     const sel = etat.sel;
-    if (sel && sel.type !== "s"){
+    if (sel && sel.type === "pole"){
+      if (P[+s].g === sel.g || P[+t].g === sel.g){ r.color = melange(css("--accent"), css("--bg") || "#f6f1e7", 0.55); r.zIndex = 2; } else r.color = css("--line");
+      return r;
+    }
+    if (sel && sel.type !== "s" && sel.type !== "pp"){
       const lie = (sel.type === "p" && (sel.id === +s || sel.id === +t)) || (sel.type === "l" && sel.k === a.k) || (sel.type === "chemin" && sel.liens.includes(a.k));
       if (lie){ r.color = egoActif ? melange(css("--accent"), css("--bg") || "#f6f1e7", 0.45) : css("--accent"); r.zIndex = 2; if (sel.type === "chemin") r.size += 2; }
       else r.color = css("--line");
@@ -348,11 +401,14 @@ function changerMode(m){
   maj();
 }
 function majLibellesMin(){
-  const c = etat.mode === "cles", e = !!etat.egoSet;
-  $("#lib-min").textContent = e ? "lettres min. avec la personne" : c ? "lettres min. par lien" : "lettres min. par personne";
-  const v = e ? etat.minEgo : c ? etat.minCles : etat.min;
+  const c = etat.mode === "cles", e = !!etat.egoSet, po = etat.mode === "poles";
+  $("#lib-min").textContent = po ? "lettres min. entre pôles" : e ? "lettres min. avec la personne" : c ? "lettres min. par lien" : "lettres min. par personne";
+  $("#min").max = po ? 500 : 50;
+  const v = po ? etat.minPoles : e ? etat.minEgo : c ? etat.minCles : etat.min;
   $("#min").value = v; $("#vmin").textContent = v;
-  $("#aide-mode").textContent = c
+  $("#aide-mode").textContent = po
+    ? "Vue d'ensemble : un cercle par pôle (taille = lettres), un trait par paire de pôles (épaisseur = lettres échangées). Cliquez un pôle pour voir ses figures, un trait pour les échanges qui le composent."
+    : c
     ? "Les 89 figures clés, placées par pôle sur une carte schématique ; traits = lettres échangées entre elles. Cliquez une figure, puis « Voir tout son réseau » pour ses autres correspondants."
     : "Toutes les personnes (" + nf(total.filter(Boolean).length) + "). Utilisez « réseau personnel » sur une fiche pour isoler un entourage.";
 }
@@ -381,7 +437,7 @@ function calculerCommunautes(){
   const louvain = graphologyLibrary.communitiesLouvain;
   const part = louvain(graphe, {getEdgeWeight: "weight"});
   const membres = new Map();
-  for (const [n, c] of Object.entries(part)) { if (!membres.has(c)) membres.set(c, []); membres.get(c).push(+n); }
+  for (const [n, c] of Object.entries(part)) { if (estPole(n)) continue; if (!membres.has(c)) membres.set(c, []); membres.get(c).push(+n); }
   const tri = [...membres.entries()].map(([c, m]) => [c, m, m.reduce((s, i) => s + total[i], 0)]).sort((a, b) => b[2] - a[2]);
   const couleur = new Map(), de = new Map(), liste = [];
   tri.forEach(([c, m, poids], k) => {
@@ -397,17 +453,19 @@ function calculerCommunautes(){
 // ---------------------------------------------------------------- Interactions du graphe
 const bulle = $("#infobulle");
 function montrerBulle(html){ bulle.innerHTML = html; bulle.style.display = "block"; }
-rendu.on("enterNode", ({node}) => { const i = +node; montrerBulle(`<b>${esc(P[i].n)}</b><br>${compte.get(i) || 0} lettres sur ${etat.debut}–${etat.fin}`); });
+rendu.on("enterNode", ({node}) => { if (estPole(node)){ const g = node.slice(5); montrerBulle(`<b>${esc(NOMS_GROUPES[g])}</b><br>${nf(compteP.get(g) || 0)} lettres impliquant ce pôle sur ${etat.debut}–${etat.fin}<br>dont ${nf(interneP.get(g) || 0)} à l'intérieur du pôle<br><i>cliquer pour voir ses figures</i>`); return; } const i = +node; montrerBulle(`<b>${esc(P[i].n)}</b><br>${compte.get(i) || 0} lettres sur ${etat.debut}–${etat.fin}`); });
 rendu.on("enterEdge", ({edge}) => {
-  const e = liens.get(graphe.getEdgeAttribute(edge, "k"));
+  const kk = graphe.getEdgeAttribute(edge, "k");
+  if (kk.startsWith("pp:")){ const [a, b] = kk.slice(3).split("|"); montrerBulle(`<b>${esc(NOMS_GROUPES[a])}</b> ↔ <b>${esc(NOMS_GROUPES[b])}</b><br>${nf(compteLienP.get(kk) || 0)} lettres sur ${etat.debut}–${etat.fin}`); return; }
+  const e = liens.get(kk);
   const mes = e.lettres.filter(garder), ab = mes.filter(j => L[j][1].includes(e.a)).length;
   montrerBulle(`<b>${esc(P[e.a].n)}</b> ↔ <b>${esc(P[e.b].n)}</b><br>${mes.length} lettres sur la période<br>${esc(P[e.a].n)} → : ${ab} · ${esc(P[e.b].n)} → : ${mes.length - ab}`);
 });
 rendu.on("leaveNode", () => bulle.style.display = "none");
 rendu.on("leaveEdge", () => bulle.style.display = "none");
 document.addEventListener("mousemove", ev => { bulle.style.left = Math.min(ev.clientX + 14, innerWidth - 330) + "px"; bulle.style.top = ev.clientY + 14 + "px"; });
-rendu.on("clickNode", ({node}) => choisirPersonne(+node));
-rendu.on("clickEdge", ({edge}) => choisirLien(graphe.getEdgeAttribute(edge, "k")));
+rendu.on("clickNode", ({node}) => estPole(node) ? ouvrirPole(node.slice(5)) : choisirPersonne(+node));
+rendu.on("clickEdge", ({edge}) => { const kk = graphe.getEdgeAttribute(edge, "k"); if (kk.startsWith("pp:")){ etat.sel = {type: "pp", k: kk, g: kk.slice(3).split("|")}; etat.panneau = null; maj(); } else choisirLien(kk); });
 rendu.on("afterRender", dessinerPoles);
 rendu.on("clickStage", () => { etat.sel = null; etat.panneau = null; etat.ego = 0; maj(); });
 
@@ -415,6 +473,15 @@ function centrer(i){
   if (!graphe.hasNode(String(i))) return;
   const pos = rendu.getNodeDisplayData(String(i));
   if (pos) rendu.getCamera().animate({x: pos.x, y: pos.y, ratio: 0.35}, {duration: 500});
+}
+function ouvrirPole(g){
+  etat.sel = {type: "pole", g}; etat.panneau = null; etat.ego = 0;
+  if (etat.mode !== "cles") changerMode("cles"); else maj();
+  const ids = [...geoPos.keys()].filter(i => P[i].g === g && compte.get(i));
+  if (ids.length){
+    const vp = ids.map(i => rendu.getNodeDisplayData(String(i))).filter(Boolean);
+    if (vp.length) rendu.getCamera().animate({x: vp.reduce((t, p) => t + p.x, 0) / vp.length, y: vp.reduce((t, p) => t + p.y, 0) / vp.length, ratio: 0.75}, {duration: 500});
+  }
 }
 function choisirPersonne(i, recentrer){
   if (etat.mode === "cles" && !P[i].cle){ etat.ego = 1; changerMode("complet"); }
@@ -529,6 +596,8 @@ function afficherDetail(){
   else if (pan === "limites") panneauLimites(box);
   else if (pan && pan.evt !== undefined) panneauEvenement(box, pan.evt);
   else if (pan && pan.lieu !== undefined) panneauLieu(box, pan.lieu);
+  else if (s && s.type === "pole") panneauPole(box, s.g);
+  else if (s && s.type === "pp") panneauPaire(box, s.g);
   else if (s && s.type === "p") panneauPersonne(box, s.id);
   else if (s && s.type === "l") panneauLien(box, s.k);
   else if (s && s.type === "chemin") panneauChemin(box);
@@ -545,6 +614,36 @@ function panneauAccueil(box){
     <p class="petit muted">Cliquez sur une personne pour voir ses correspondants et sa frise, ou sur un lien pour lire les lettres qui le composent. Nouveau ici ? <button class="lienbtn" id="aide2">Mode d'emploi</button> · <button class="lienbtn" id="lim2">Limites du corpus</button></p>
     <h2>Les plus actifs</h2>` + top.map(([i, n]) => `<div class="corresp" data-p="${i}"><span><span class="pastille" style="background:${couleurDe(i)}"></span> ${esc(P[i].n)}</span><span class="muted">${n}</span></div>`).join("");
   $("#aide2").onclick = aide; $("#lim2").onclick = () => { etat.panneau = "limites"; maj(); };
+}
+function panneauPole(box, g){
+  const membres = P.map((p, i) => i).filter(i => P[i].cle && P[i].g === g && compte.get(i)).sort((a, b) => compte.get(b) - compte.get(a));
+  const autres = Object.keys(NOMS_GROUPES).filter(h => h !== g).map(h => [h, compteLienP.get("pp:" + [g, h].sort().join("|")) || 0]).filter(x => x[1]).sort((a, b) => b[1] - a[1]);
+  if (!compteLienP.size) recompterPoles();
+  box.innerHTML = `<h3><span class="pastille" style="background:${COULEURS[g]}"></span> ${esc(NOMS_GROUPES[g] || g)}</h3>
+    <p class="petit muted">Pôle : les figures clés de ce lieu ou de ce milieu, et les personnes qui leur écrivent surtout à elles.</p>
+    <div class="ligne"><button class="btn petit" id="b-poles">← tous les pôles</button></div>
+    <h2>Figures clés (${membres.length})</h2>` +
+    membres.map(i => `<div class="corresp" data-p="${i}"><span><span class="pastille" style="background:${couleurDe(i)}"></span> ${esc(P[i].n)}</span><span class="muted">${compte.get(i)}</span></div>`).join("") +
+    `<h2>Échanges avec les autres pôles (${etat.debut}–${etat.fin})</h2>` +
+    autres.slice(0, 12).map(([h, n]) => `<div class="corresp" data-pp="${h}"><span><span class="pastille" style="background:${COULEURS[h]}"></span> ${esc(NOMS_GROUPES[h])}</span><span class="muted">${nf(n)}</span></div>`).join("");
+  $("#b-poles").onclick = () => { etat.sel = null; changerMode("poles"); };
+  box.querySelectorAll("[data-pp]").forEach(el => el.onclick = () => { const k = "pp:" + [g, el.dataset.pp].sort().join("|"); etat.sel = {type: "pp", k, g: [g, el.dataset.pp]}; changerMode("poles"); maj(); });
+}
+function panneauPaire(box, [a, b]){
+  const ids = new Set([...P.keys()].filter(i => P[i].g === a || P[i].g === b));
+  const paires = new Map();
+  for (const [k, e] of liens){
+    const ga = P[e.a].g, gb = P[e.b].g;
+    if (!((ga === a && gb === b) || (ga === b && gb === a))) continue;
+    const n = compteLien.get(k); if (n) paires.set(k, n);
+  }
+  const top = [...paires.entries()].sort((x, y) => y[1] - x[1]).slice(0, 25);
+  box.innerHTML = `<h3>${esc(NOMS_GROUPES[a])} ↔ ${esc(NOMS_GROUPES[b])}</h3>
+    <p>${nf(compteLienP.get("pp:" + [a, b].sort().join("|")) || 0)} lettres sur ${etat.debut}–${etat.fin}.</p>
+    <div class="ligne"><button class="btn petit" data-po="${a}">voir ${esc(NOMS_GROUPES[a])}</button><button class="btn petit" data-po="${b}">voir ${esc(NOMS_GROUPES[b])}</button></div>
+    <h2>Principaux échanges entre ces deux pôles</h2>` +
+    top.map(([k, n]) => { const e = liens.get(k); return `<div class="corresp" data-l="${k}"><span>${esc(P[e.a].n)} ↔ ${esc(P[e.b].n)}</span><span class="muted">${n}</span></div>`; }).join("");
+  box.querySelectorAll("[data-po]").forEach(el => el.onclick = () => ouvrirPole(el.dataset.po));
 }
 function panneauPersonne(box, i){
   const p = P[i], mes = parPersonne[i].filter(garder);
@@ -861,6 +960,8 @@ $("#b-doublons").onclick = () => { etat.panneau = etat.panneau === "doublons" ? 
 // ---------------------------------------------------------------- Lettres de la sélection
 function filtreSel(){
   const s = etat.sel;
+  if (s && s.type === "pole") return new Set(L.map((l, i) => [...l[1], ...l[2]].some(x => P[x].g === s.g) ? i : -1).filter(i => i >= 0));
+  if (s && s.type === "pp"){ const [a, b] = s.g; return new Set(L.map((l, i) => (l[1].some(x => P[x].g === a) && l[2].some(x => P[x].g === b)) || (l[1].some(x => P[x].g === b) && l[2].some(x => P[x].g === a)) ? i : -1).filter(i => i >= 0)); }
   if (s && s.type === "p") return new Set(etat.egoSet && etat.ego ? [...etat.egoSet].flatMap(x => parPersonne[x]).filter(j => [...L[j][1], ...L[j][2]].every(q => etat.egoSet.has(q))) : parPersonne[s.id]);
   if (s && s.type === "l") return new Set(liens.get(s.k).lettres);
   if (s && s.type === "chemin") return new Set(s.liens.flatMap(k => liens.get(k).lettres));
@@ -870,6 +971,8 @@ function filtreSel(){
 }
 function decrireSel(){
   const s = etat.sel;
+  if (s && s.type === "pole") return "pôle : " + (NOMS_GROUPES[s.g] || s.g);
+  if (s && s.type === "pp") return s.g.map(g => NOMS_GROUPES[g]).join(" ↔ ");
   if (s && s.type === "p") return P[s.id].n + (etat.ego ? " (réseau personnel)" : "");
   if (s && s.type === "l") { const e = liens.get(s.k); return `${P[e.a].n} ↔ ${P[e.b].n}`; }
   if (s && s.type === "chemin") return `chemin ${P[s.noeuds[0]].n} → ${P[s.noeuds.at(-1)].n}`;
@@ -989,7 +1092,7 @@ function dessinerCarte(){
 function changerVue(v){
   etat.vue = v;
   document.querySelectorAll(".onglets [data-vue]").forEach(b => b.setAttribute("aria-selected", b.dataset.vue === v));
-  $("#tableau").hidden = v !== "tableau"; $("#carte").hidden = v !== "carte";
+  document.querySelectorAll("#vues .calque").forEach(c => c.hidden = c.id !== v);
   maj();
 }
 document.querySelectorAll(".onglets [data-vue]").forEach(b => b.onclick = () => changerVue(b.dataset.vue));
@@ -1064,7 +1167,7 @@ $("#debut").min = $("#fin").min = A0; $("#debut").max = $("#fin").max = A1;
 $("#debut").oninput = e => fixerPeriode(+e.target.value, Math.max(+e.target.value, etat.fin));
 $("#fin").oninput = e => fixerPeriode(Math.min(etat.debut, +e.target.value), +e.target.value);
 $("#tout").onclick = () => fixerPeriode(A0, A1);
-$("#min").oninput = e => { if (etat.egoSet) etat.minEgo = +e.target.value; else if (etat.mode === "cles") etat.minCles = +e.target.value; else etat.min = +e.target.value; $("#vmin").textContent = e.target.value; maj(); };
+$("#min").oninput = e => { if (etat.mode === "poles") etat.minPoles = +e.target.value; else if (etat.egoSet) etat.minEgo = +e.target.value; else if (etat.mode === "cles") etat.minCles = +e.target.value; else etat.min = +e.target.value; $("#vmin").textContent = e.target.value; maj(); };
 $("#mode").onchange = e => changerMode(e.target.value);
 
 $("#noms").onchange = e => { etat.noms = e.target.checked; maj(); };
@@ -1108,6 +1211,7 @@ function aide(){
   ouvrirModal(`<h3>Mode d'emploi</h3>
     <p class="petit">Chaque <b>point</b> est une personne, chaque <b>trait</b> un échange de lettres : plus il est épais, plus il y a de lettres. La taille d'un point dépend du nombre de lettres conservées sur la période choisie.</p>
     <div class="etape"><b>1</b><div><b>Choisir une période</b> : glissez la souris sur la frise du bas, ou utilisez les curseurs. « ▶ Animer » fait défiler les années. Les triangles sont des événements (politiques, théologiques, personnels) ; cliquez-en un pour sa fiche.</div></div>
+    <div class="etape"><b>★</b><div><b>Trois niveaux de lecture</b> : le graphe s'ouvre sur les <b>pôles</b> (Wittenberg, Zurich, Genève…) ; cliquez un pôle pour voir ses <b>figures clés</b>, puis une figure et « Voir tout son réseau » pour sa <b>cible</b>. Les onglets <b>Lignes de vie</b> (qui écrit à qui, quand, et les silences) et <b>Matrice</b> (qui écrit à qui, décennie par décennie) donnent deux autres lectures sans traits qui se croisent. Le bouton <b>Parcours</b> propose des visites guidées (Marbourg 1529, Calvin à Strasbourg…).</div></div>
     <div class="etape"><b>2</b><div><b>Explorer une personne</b> : cherchez-la ou cliquez-la. Sa fiche montre ses lettres écrites (en haut) et reçues (en bas) année par année, ses correspondants, et permet d'isoler son <b>réseau personnel</b>, de chercher un <b>chemin</b> vers quelqu'un d'autre ou de l'ajouter à une <b>comparaison</b>.</div></div>
     <div class="etape"><b>3</b><div><b>Lire un échange</b> : cliquez un trait. Vous voyez le rythme de la relation, ses silences, le sens des lettres et la liste des lettres, chacune avec sa référence d'édition et un lien vers la page numérisée.</div></div>
     <div class="etape"><b>4</b><div><b>Travailler avec les lettres</b> : l'onglet <b>Lettres</b> donne un tableau triable et filtrable de la sélection, exportable en CSV ; l'onglet <b>Carte</b> montre d'où partent et où arrivent les lettres.</div></div>
@@ -1137,6 +1241,8 @@ function maj(){
   rendu.refresh(); dessinerFrise(); afficherDetail();
   if (etat.vue === "tableau") dessinerTableau();
   if (etat.vue === "carte") dessinerCarte();
+  if (etat.vue === "vies" && typeof dessinerVies === "function") dessinerVies();
+  if (etat.vue === "matrice" && typeof dessinerMatrice === "function") dessinerMatrice();
   $("#resume-vue").textContent = `${decrireSel()} · ${etat.debut}–${etat.fin}`;
   majCompteurs(); versAdresse();
 }

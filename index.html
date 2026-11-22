@@ -113,6 +113,7 @@ h2:first-child{margin-top:0}
     <span class="stats" id="stats"></span>
     <span class="sp"></span>
     <button class="btn petit" id="b-lien" title="Copier un lien vers la vue actuelle (période, personne, filtres)">⧉ Lien de cette vue</button>
+    <button class="btn petit actif" id="b-parcours" title="Visites guidées d'épisodes de la Réforme">Parcours</button>
     <button class="btn petit" id="b-comparer" title="Comparer les frises de plusieurs personnes">Comparer</button>
     <button class="btn petit" id="b-doublons" title="Personnes probablement identiques à valider">Doublons</button>
     <button class="btn petit" id="b-corrections" title="Vos signalements d'erreurs">Corrections</button>
@@ -149,8 +150,9 @@ h2:first-child{margin-top:0}
 
     <h2>Affichage du graphe</h2>
     <select class="champ" id="mode" autocomplete="off" title="Vue du graphe">
-      <option value="cles">Figures clés (vue lisible)</option>
-      <option value="complet">Réseau complet (toutes les personnes)</option>
+      <option value="poles">1 · Pôles (vue d'ensemble)</option>
+      <option value="cles">2 · Figures clés</option>
+      <option value="complet">3 · Réseau complet</option>
     </select>
     <p class="petit muted" id="aide-mode" style="margin:4px 0 6px"></p>
     <div class="ligne"><span class="petit" id="lib-min">lettres min.</span><input type="range" autocomplete="off" id="min" min="1" max="50" value="5"><b id="vmin" style="width:24px"></b></div>
@@ -171,6 +173,8 @@ h2:first-child{margin-top:0}
   <main id="centre">
     <div class="onglets" role="tablist">
       <button role="tab" data-vue="graphe" aria-selected="true">Graphe</button>
+      <button role="tab" data-vue="vies" aria-selected="false">Lignes de vie</button>
+      <button role="tab" data-vue="matrice" aria-selected="false">Matrice</button>
       <button role="tab" data-vue="tableau" aria-selected="false">Lettres</button>
       <button role="tab" data-vue="carte" aria-selected="false">Carte</button>
       <span class="sp"></span>
@@ -178,7 +182,10 @@ h2:first-child{margin-top:0}
     </div>
     <div id="vues">
       <div id="sigma"></div><div id="chargement">Calcul de la disposition…</div>
+      <div id="vies" class="calque" hidden></div>
+      <div id="matrice" class="calque" hidden></div>
       <div id="tableau" class="calque" hidden></div>
+      <div id="parcours" style="display:none;position:absolute;right:12px;bottom:12px;max-width:380px;z-index:30;background:var(--panel);border:1px solid var(--accent);border-radius:6px;padding:10px 12px;box-shadow:0 4px 16px rgba(0,0,0,.18);font-size:13px"></div>
       <div id="carte" class="calque" hidden></div>
     </div>
   </main>
@@ -191,10 +198,11 @@ h2:first-child{margin-top:0}
 <div id="modal" role="dialog" aria-modal="true"><div class="boite" id="modal-boite"></div></div>
 <div class="toast" id="toast"></div>
 
-<script src="data.js?v=202611221430"></script>
+<script src="data.js?v=202611221441"></script>
 <script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/graphology-library@0.8.0/dist/graphology-library.min.js"></script>
-<script src="app.js?v=202611221430"></script>
+<script src="app.js?v=202611221441"></script>
+<script src="vues.js?v=202611221441"></script>
 </body>
 </html>

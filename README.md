@@ -2,7 +2,11 @@
 
 Ouvrir `index.html` dans un navigateur (double-clic, ou servi par `python3 -m http.server`). Les données sont dans `data.js`, produit par `python3 scripts/construire_site.py` ; la logique est dans `app.js`. Une connexion est nécessaire pour les bibliothèques (sigma, graphology, Leaflet) et le fond de carte (Esri « Canvas », sans clé ; les serveurs d'openstreetmap.org refusent les pages ouvertes en `file://`).
 
-## Trois vues
+## Vues
+- **Graphe à trois niveaux** : 1. **Pôles** (vue d'ensemble : un cercle par pôle, un trait par paire de pôles) → clic → 2. **Figures clés** du pôle sur la carte schématique → « Voir tout son réseau » → 3. **cible** de la personne. Le niveau « Réseau complet » reste disponible.
+- **Lignes de vie** : une ligne par personne dans le temps ; un arc par mois, trimestre ou année de lettres entre deux personnes (couleur de l'expéditeur) ; silences visibles.
+- **Matrice** : expéditeurs en ligne, destinataires en colonne, par décennie ; figures clés ou pôles.
+- **Parcours guidés** : Marbourg 1529, Calvin à Strasbourg, l'Intérim, Érasme et Luther, les exilés anglais. Chiffres calculés en direct.
 - **Deux lectures du graphe** :
   - « **Figures clés** » (par défaut) : les 89 figures, placées par pôle sur une carte schématique fixe (Angleterre en haut à gauche, Wittenberg en haut à droite, Suisse au centre, catholiques en bas), reliées par les lettres échangées entre elles ;
   - « **Réseau complet** » : toutes les personnes.
