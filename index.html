@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Épistolaire de la Réforme</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --bg:#f6f1e7; --panel:#fffdf8; --ink:#2b2620; --muted:#7a6f62; --line:#e2d8c6; --accent:#8b2e1f; --sel:#d9a441;
+  --bar:#b9a88d; --barwin:#8b2e1f; --barbas:#2f5d7c; --event:#2f5d7c; --t-politique:#9a6b1f; --t-theologique:#2f5d7c; --t-personnel:#6b4c9a;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#1b1916; --panel:#24211d; --ink:#ece4d6; --muted:#a59a8a; --line:#3a352e; --accent:#e0765f; --sel:#e6b85a; --bar:#5d5446; --barwin:#e0765f; --barbas:#7fb2d6; --event:#7fb2d6; --t-politique:#d9a85a; --t-theologique:#7fb2d6; --t-personnel:#b59be0; }
+}
+:root[data-theme="dark"]{ --bg:#1b1916; --panel:#24211d; --ink:#ece4d6; --muted:#a59a8a; --line:#3a352e; --accent:#e0765f; --sel:#e6b85a; --bar:#5d5446; --barwin:#e0765f; --barbas:#7fb2d6; --event:#7fb2d6; --t-politique:#d9a85a; --t-theologique:#7fb2d6; --t-personnel:#b59be0; }
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.4 Georgia,"Times New Roman",serif}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--event)}
+#app{display:grid;grid-template-columns:270px 1fr 380px;grid-template-rows:auto 1fr 190px;height:100vh}
+header{grid-column:1/4;display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{font-size:20px;margin:0 8px 0 0;font-weight:normal;letter-spacing:.02em}
+header .stats{color:var(--muted);font-size:13px}
+header .sp{flex:1}
+#gauche{grid-row:2/4;border-right:1px solid var(--line);padding:12px 14px;overflow:auto;background:var(--panel)}
+#centre{position:relative;min-height:0;display:flex;flex-direction:column}
+.onglets{display:flex;gap:2px;padding:6px 10px 0;border-bottom:1px solid var(--line)}
+.onglets button{border:1px solid var(--line);border-bottom:none;background:var(--bg);padding:4px 14px;border-radius:4px 4px 0 0;cursor:pointer;color:var(--muted)}
+.onglets button[aria-selected="true"]{background:var(--panel);color:var(--ink);border-color:var(--accent)}
+.onglets .sp{flex:1}
+#vues{position:relative;flex:1;min-height:0}
+#sigma{position:absolute;inset:0}
+.calque{position:absolute;inset:0;background:var(--panel);overflow:auto;z-index:5}
+.calque[hidden]{display:none}
+#carte{z-index:5}
+#droite{grid-row:2/4;grid-column:3;border-left:1px solid var(--line);overflow:auto;background:var(--panel);padding:14px}
+#frise{grid-column:2;border-top:1px solid var(--line);position:relative;user-select:none}
+#frise svg{width:100%;height:100%;display:block;cursor:crosshair}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:16px 0 6px;font-weight:normal}
+h2:first-child{margin-top:0}
+.champ{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.ligne{display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap}
+.ligne input[type=range]{flex:1}
+.groupe{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin:2px 0}
+.pastille{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none}
+.btn{border:1px solid var(--line);background:var(--bg);border-radius:4px;padding:4px 10px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.actif{border-color:var(--accent);color:var(--accent)}
+.btn.petit{padding:2px 8px;font-size:12px}
+.lienbtn{background:none;border:none;padding:0;color:var(--event);cursor:pointer;font-size:12px;text-decoration:underline dotted}
+#suggest,.suggest{border:1px solid var(--line);border-top:none;max-height:220px;overflow:auto;background:var(--panel)}
+#suggest:empty,.suggest:empty{display:none}
+#suggest div,.suggest div{padding:4px 8px;cursor:pointer;font-size:13px}
+#suggest div:hover,.suggest div:hover{background:var(--bg)}
+.muted{color:var(--muted)}
+.petit{font-size:12px}
+#droite h3{margin:0 0 2px;font-size:19px;font-weight:normal}
+.corresp{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px dotted var(--line);cursor:pointer;font-size:13px}
+.corresp:hover{color:var(--accent)}
+.lettre{padding:6px 0;border-bottom:1px dotted var(--line);font-size:13px}
+.d{font-variant-numeric:tabular-nums;color:var(--accent)}
+.p1,.p2{color:var(--accent)}
+.p3{font-style:italic;color:var(--muted)}
+.doute{color:var(--accent)}
+.corrigee{color:#3f8f5a}
+.mini{width:100%;display:block;margin:6px 0 2px}
+.cartouche{border:1px solid var(--line);border-radius:4px;padding:8px 10px;margin:8px 0;background:var(--bg)}
+.chiffres{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:13px}
+.chiffres b{font-variant-numeric:tabular-nums}
+#infobulle{position:fixed;pointer-events:none;background:var(--panel);border:1px solid var(--line);padding:6px 8px;border-radius:4px;font-size:12px;max-width:320px;display:none;z-index:1000;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+#chargement{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);pointer-events:none}
+.legende-frise{position:absolute;left:10px;top:4px;font-size:12px;color:var(--muted)}
+/* tableau */
+#tableau{padding:10px 12px}
+#tableau table{border-collapse:collapse;width:100%;font-size:13px}
+#tableau th{position:sticky;top:0;background:var(--panel);text-align:left;font-weight:normal;color:var(--muted);border-bottom:1px solid var(--line);padding:4px 6px;cursor:pointer;white-space:nowrap}
+#tableau th[data-tri]:hover{color:var(--accent)}
+#tableau td{padding:4px 6px;border-bottom:1px dotted var(--line);vertical-align:top}
+#tableau tr:hover td{background:var(--bg)}
+.barre-outils{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.barre-outils .champ{width:auto;flex:1;min-width:160px}
+/* légendes */
+.leg{display:flex;align-items:center;gap:6px;font-size:12px;margin:2px 0}
+.leg i{display:inline-block;width:18px;height:8px;border-radius:2px}
+/* fenêtre modale */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:2000;padding:16px}
+#modal.ouvert{display:flex}
+#modal .boite{background:var(--panel);border:1px solid var(--line);border-radius:6px;max-width:680px;width:100%;max-height:90vh;overflow:auto;padding:18px 22px;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+#modal h3{margin:0 0 8px;font-weight:normal;font-size:20px}
+#modal label{display:block;margin:8px 0 2px;font-size:13px;color:var(--muted)}
+#modal .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.etape{display:flex;gap:10px;margin:8px 0}
+.etape > b{flex:none;width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--panel);display:flex;align-items:center;justify-content:center;font-size:12px}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:6px 14px;border-radius:4px;font-size:13px;z-index:3000;opacity:0;transition:opacity .2s}
+.toast.vu{opacity:1}
+.leaflet-container{background:var(--bg);font:inherit}
+@media (max-width: 1100px){ #app{grid-template-columns:240px 1fr 320px} }
+@media (max-width: 900px){
+  #app{grid-template-columns:1fr;grid-template-rows:auto auto 65vh 170px auto;height:auto}
+  header{grid-column:1;padding:8px 16px}
+  #gauche{grid-row:auto;border-right:none;border-bottom:1px solid var(--line);padding:12px 16px}
+  #centre{grid-row:auto;height:65vh}
+  #frise{grid-column:1}
+  #droite{grid-row:auto;grid-column:1;border-left:none;padding:14px 16px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Épistolaire de la Réforme</h1>
+    <span class="stats" id="stats"></span>
+    <span class="sp"></span>
+    <button class="btn petit" id="b-lien" title="Copier un lien vers la vue actuelle (période, personne, filtres)">⧉ Lien de cette vue</button>
+    <button class="btn petit" id="b-comparer" title="Comparer les frises de plusieurs personnes">Comparer</button>
+    <button class="btn petit" id="b-doublons" title="Personnes probablement identiques à valider">Doublons</button>
+    <button class="btn petit" id="b-corrections" title="Vos signalements d'erreurs">Corrections</button>
+    <button class="btn petit" id="b-limites">Limites du corpus</button>
+    <button class="btn petit" id="voirsources">Sources</button>
+    <button class="btn petit" id="b-aide" title="Mode d'emploi">? Aide</button>
+    <button class="btn petit" id="theme" title="Changer de thème">◐</button>
+  </header>
+
+  <aside id="gauche">
+    <h2>Chercher une personne</h2>
+    <input class="champ" id="recherche" placeholder="Luther, Calvin, Vadian…" autocomplete="off">
+    <div id="suggest"></div>
+
+    <h2>Période</h2>
+    <div class="ligne"><span class="petit muted" style="width:20px">de</span><input type="range" autocomplete="off" id="debut" min="1480" max="1600" value="1480"><b id="vdebut" style="width:38px"></b></div>
+    <div class="ligne"><span class="petit muted" style="width:20px">à</span><input type="range" autocomplete="off" id="fin" min="1480" max="1600" value="1600"><b id="vfin" style="width:38px"></b></div>
+    <div class="ligne">
+      <button class="btn" id="lecture">▶ Animer</button>
+      <select class="champ" id="fenetre" style="width:auto" title="Largeur de la fenêtre animée">
+        <option value="1">1 an</option><option value="3" selected>3 ans</option><option value="5">5 ans</option><option value="10">10 ans</option>
+      </select>
+      <button class="btn" id="tout">Tout</button>
+    </div>
+    <p class="petit muted" style="margin:4px 0">Glissez la souris sur la frise du bas pour choisir une période.</p>
+
+    <h2>Fiabilité des données</h2>
+    <select class="champ" id="fiabilite" autocomplete="off">
+      <option value="toutes">Toutes les lettres</option>
+      <option value="datees">Sans les dates estimées</option>
+      <option value="sures">Seulement les données sûres</option>
+    </select>
+    <div id="legende-fiab" class="petit" style="margin-top:6px"></div>
+
+    <h2>Affichage du graphe</h2>
+    <div class="ligne"><span class="petit">lettres min.</span><input type="range" autocomplete="off" id="min" min="1" max="50" value="5"><b id="vmin" style="width:24px"></b></div>
+    <label class="groupe"><input type="checkbox" id="seulcles"> figures clés uniquement</label>
+    <label class="groupe" title="Toujours afficher le nom des figures clés"><input type="checkbox" id="noms" checked> noms des figures clés</label>
+    <div class="ligne"><span class="petit">couleurs</span>
+      <select class="champ" id="couleurs" style="width:auto;flex:1"><option value="poles">pôles géographiques</option><option value="communautes">communautés détectées</option></select></div>
+
+    <h2>Événements</h2>
+    <div id="themes"></div>
+
+    <h2 id="titre-groupes">Pôles</h2>
+    <div id="groupes"></div>
+
+    <h2>Sources</h2>
+    <div id="sources" class="petit"></div>
+  </aside>
+
+  <main id="centre">
+    <div class="onglets" role="tablist">
+      <button role="tab" data-vue="graphe" aria-selected="true">Graphe</button>
+      <button role="tab" data-vue="tableau" aria-selected="false">Lettres</button>
+      <button role="tab" data-vue="carte" aria-selected="false">Carte</button>
+      <span class="sp"></span>
+      <span class="petit muted" id="resume-vue" style="align-self:center"></span>
+    </div>
+    <div id="vues">
+      <div id="sigma"></div><div id="chargement">Calcul de la disposition…</div>
+      <div id="tableau" class="calque" hidden></div>
+      <div id="carte" class="calque" hidden></div>
+    </div>
+  </main>
+
+  <aside id="droite"><div id="detail"></div></aside>
+
+  <section id="frise"><span class="legende-frise" id="legende-frise"></span><svg id="svgfrise"></svg></section>
+</div>
+<div id="infobulle"></div>
+<div id="modal" role="dialog" aria-modal="true"><div class="boite" id="modal-boite"></div></div>
+<div class="toast" id="toast"></div>
+
+<script src="data.js?v=202611221306"></script>
+<script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/graphology-library@0.8.0/dist/graphology-library.min.js"></script>
+<script src="app.js?v=202611221306"></script>
+</body>
+</html>
