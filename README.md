@@ -3,6 +3,10 @@
 Ouvrir `index.html` dans un navigateur (double-clic, ou servi par `python3 -m http.server`). Les données sont dans `data.js`, produit par `python3 scripts/construire_site.py` ; la logique est dans `app.js`. Une connexion est nécessaire pour les bibliothèques (sigma, graphology, Leaflet) et le fond de carte (Esri « Canvas », sans clé ; les serveurs d'openstreetmap.org refusent les pages ouvertes en `file://`).
 
 ## Trois vues
+- **Deux lectures du graphe** :
+  - « **Figures clés** » (par défaut) : les 89 figures, placées par pôle sur une carte schématique fixe (Angleterre en haut à gauche, Wittenberg en haut à droite, Suisse au centre, catholiques en bas), reliées par les lettres échangées entre elles ;
+  - « **Réseau complet** » : toutes les personnes.
+  - Sur une fiche, « Voir tout son réseau » affiche le **réseau personnel en cible** : la personne au centre, ses correspondants groupés par pôle, d'autant plus près qu'ils ont échangé de lettres avec elle.
 - **Graphe** : une personne par nœud (taille = lettres sur la période), un lien par paire de correspondants. Couleurs : pôles géographiques, ou communautés détectées automatiquement (algorithme de Louvain).
 - **Lettres** : tableau de la sélection, triable et filtrable, exportable en CSV (avec une citation prête à l'emploi pour chaque lettre).
 - **Carte** : lieux d'expédition et de réception (coordonnées GeoNames, `data/lieux_geo.csv`), trajets ; un clic sur un lieu donne ses lettres et ses personnes.

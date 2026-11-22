@@ -25,6 +25,9 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const annee = d => +String(d).slice(0, 4);
 const sansAccent = s => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+// mélange opaque de deux couleurs (le rendu WebGL gère mal la transparence des traits)
+const melange = (a, b, t) => { const c = h => [1, 3, 5].map(k => parseInt(h.replace("#", "").padEnd(6, "0").slice(k - 1, k + 1), 16));
+  const x = c(a), y = c(b); return "#" + x.map((v, k) => Math.round(v * t + y[k] * (1 - t)).toString(16).padStart(2, "0")).join(""); };
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const nf = n => n.toLocaleString("fr");
 const stocke = {
@@ -81,7 +84,8 @@ D.evenements.forEach(e => { e.theme = e.theme || "théologique"; e.p = e.p || []
 
 // ---------------------------------------------------------------- État (et lien partageable)
 const etat = {
-  debut: A0, fin: A1, min: 5, seulCles: false, noms: true, fiab: "toutes", couleurs: "poles",
+  mode: "cles", minCles: 5, minEgo: 3,
+  debut: A0, fin: A1, min: 10, seulCles: false, noms: true, fiab: "toutes", couleurs: "poles",
   groupes: new Set(Object.keys(COULEURS)), themes: new Set(Object.keys(THEMES)), communautes: null,
   sel: null,          // {type:"p", id} | {type:"l", k} | {type:"chemin", noeuds:[], liens:[]} | {type:"s", id}
   ego: 0,             // réseau personnel : 0 non, 1 correspondants, 2 + leurs correspondants
@@ -99,7 +103,10 @@ function versAdresse(){
   const q = new URLSearchParams();
   if (etat.debut !== A0) q.set("de", etat.debut);
   if (etat.fin !== A1) q.set("a", etat.fin);
-  if (etat.min !== 5) q.set("min", etat.min);
+  if (etat.min !== 10) q.set("min", etat.min);
+  if (etat.mode !== "cles") q.set("mode", etat.mode);
+  if (etat.minCles !== 5) q.set("minl", etat.minCles);
+  if (etat.minEgo !== 3) q.set("mine", etat.minEgo);
   if (etat.seulCles) q.set("cles", 1);
   if (etat.fiab !== "toutes") q.set("fiab", etat.fiab);
   if (etat.couleurs !== "poles") q.set("couleurs", etat.couleurs);
@@ -127,6 +134,9 @@ function depuisAdresse(){
   if (q.has("couleurs")) etat.couleurs = q.get("couleurs");
   if (q.has("vue")) etat.vue = q.get("vue");
   if (q.has("ego")) etat.ego = +q.get("ego");
+  if (q.has("mode")) etat.mode = q.get("mode") === "complet" ? "complet" : "cles";
+  if (q.has("minl")) etat.minCles = +q.get("minl");
+  if (q.has("mine")) etat.minEgo = +q.get("mine");
   if (q.has("sans")) q.get("sans").split(",").forEach(g => etat.groupes.delete(g));
   if (q.has("q")) etat.texte = q.get("q");
   const pid = k => parCle.has(k) ? parCle.get(k) : null;
@@ -142,11 +152,78 @@ $("#b-lien").onclick = () => { versAdresse(); copier(location.href, "Lien de cet
 // ---------------------------------------------------------------- Graphe
 const Graph = graphology.Graph || graphology;
 const graphe = new Graph({type: "undirected"});
+/* Carte schématique des pôles (nord en haut) : chaque pôle occupe sa région ; les figures clés y sont
+   disposées en tournesol, la plus active au centre. Disposition fixe : tout le monde voit le même graphe. */
+const POLES_XY = {
+  "angleterre": [-7, 5], "humaniste": [-3, 6], "princes": [2.5, 6.5], "wittenberg": [7, 5.5], "radical": [7.5, 1],
+  "france": [-7.5, 0], "strasbourg": [-2.5, 2], "sud-allemand": [3.5, 2], "bale": [-1, -1.5], "constance": [3.5, -1.5],
+  "geneve": [-6, -4.5], "berne": [-3, -4], "zurich": [1, -3.8], "saint-gall": [4.5, -4.5], "refuge": [8, -4],
+  "catholique": [0.5, -7.5], "autre": [10, 7]};
+const ECHELLE = 19;
+const geoPos = new Map();
+(function(){
+  const parPole = {};
+  P.forEach((p, i) => { if (p.cle && total[i]) (parPole[p.g] = parPole[p.g] || []).push(i); });
+  for (const [g, ids] of Object.entries(parPole)){
+    const [cx, cy] = POLES_XY[g] || POLES_XY.autre;
+    ids.sort((a, b) => total[b] - total[a]).forEach((i, k) => {
+      const r = k ? 0.95 * Math.sqrt(k) : 0, a = k * 2.39996;
+      geoPos.set(i, [(cx + r * Math.cos(a)) * ECHELLE, (cy + r * Math.sin(a)) * ECHELLE]);
+    });
+  }
+})();
 P.forEach((p, i) => {
   if (!total[i]) return;
-  const ang = Math.random() * 2 * Math.PI, r = p.cle ? 10 : 30 + Math.random() * 30;
-  graphe.addNode(String(i), {x: r * Math.cos(ang), y: r * Math.sin(ang), label: p.n, color: COULEURS[p.g] || COULEURS.autre, size: 2});
+  // départ de la disposition complète : près de son pôle (et non au hasard), pour garder la géographie
+  const [cx, cy] = geoPos.get(i) || (POLES_XY[p.g] || POLES_XY.autre).map(v => v * ECHELLE);
+  const ang = Math.random() * 2 * Math.PI, r = p.cle ? 0 : 8 + Math.random() * 25;
+  graphe.addNode(String(i), {x: cx + r * Math.cos(ang), y: cy + r * Math.sin(ang), label: p.n, color: COULEURS[p.g] || COULEURS.autre, size: 2});
 });
+const tetesDePole = new Set();
+(function(){ const pp = {}; P.forEach((p, i) => { if (p.cle && total[i]) (pp[p.g] = pp[p.g] || []).push(i); });
+  for (const ids of Object.values(pp)) ids.sort((a, b) => total[b] - total[a]).slice(0, 3).forEach(i => tetesDePole.add(i)); })();
+let positionsFA = null;          // disposition du réseau complet, calculée à la première demande
+/* Réseau personnel en cible : la personne au centre ; chaque correspondant dans le secteur de son pôle,
+   d'autant plus près qu'il a échangé de lettres ; second cercle (correspondants des correspondants) à l'extérieur. */
+let egoActif = false, egoNoms = new Set();
+function dispositionEgo(){
+  const c = etat.sel.id, S = etat.egoSet;
+  const n1 = [...S].filter(j => j !== c && compteLien.has(cleLien(c, j)) && visible(j));
+  const poles = Object.keys(POLES_XY), parPole = {};
+  n1.forEach(j => (parPole[P[j].g] = parPole[P[j].g] || []).push(j));
+  const presents = poles.filter(g => parPole[g]);
+  const poids = g => Math.sqrt(parPole[g].length);                 // secteurs : racine du nombre de correspondants
+  const tot = presents.reduce((t, g) => t + poids(g), 0) || 1, max = Math.max(1, ...n1.map(j => compteLien.get(cleLien(c, j))));
+  const pos = new Map([[c, [0, 0]]]), angle = new Map();
+  let a0 = 0;
+  for (const g of presents){
+    const ids = parPole[g].sort((x, y) => compteLien.get(cleLien(c, y)) - compteLien.get(cleLien(c, x)));
+    const largeur = 2 * Math.PI * poids(g) / tot;
+    ids.forEach((j, k) => {
+      const n = compteLien.get(cleLien(c, j));
+      const a = a0 + largeur * (k + 0.5) / ids.length;
+      const r = 40 + 260 * (1 - Math.log(1 + n) / Math.log(1 + max)) + (k % 3) * 6;
+      pos.set(j, [r * Math.cos(a), r * Math.sin(a)]); angle.set(j, a);
+    });
+    a0 += largeur;
+  }
+  // second cercle
+  for (const j of S){
+    if (pos.has(j)) continue;
+    const relai = n1.find(x => compteLien.has(cleLien(x, j)));
+    const a = (angle.get(relai) || Math.random() * 6.28) + (Math.random() - 0.5) * 0.25;
+    const r = 340 + Math.random() * 90;
+    pos.set(j, [r * Math.cos(a), r * Math.sin(a)]);
+  }
+  graphe.updateEachNodeAttributes((n, a) => { const p = pos.get(+n); return p ? {...a, x: p[0], y: p[1]} : a; });
+  egoNoms = new Set(n1.sort((x, y) => compteLien.get(cleLien(c, y)) - compteLien.get(cleLien(c, x))).slice(0, 25));
+  egoActif = true;
+}
+function appliquerPositions(){
+  egoActif = false;
+  if (etat.mode === "cles") graphe.updateEachNodeAttributes((n, a) => { const g = geoPos.get(+n); return g ? {...a, x: g[0], y: g[1]} : a; });
+  else if (positionsFA) graphe.updateEachNodeAttributes((n, a) => { const f = positionsFA.get(n); return f ? {...a, x: f[0], y: f[1]} : a; });
+}
 for (const [k, e] of liens) graphe.addEdge(String(e.a), String(e.b), {k, weight: Math.log(1 + e.lettres.length)});
 
 const compte = new Map(), compteLien = new Map();
@@ -174,7 +251,18 @@ function couleurDe(i){
 function visible(i){
   const p = P[i], n = compte.get(i) || 0;
   if (!n) return false;
-  if (etat.egoSet) return etat.egoSet.has(i) && (etat.ego === 1 || etat.egoSet.size < 400 || n >= etat.min || p.cle || i === etat.sel.id);
+  if (etat.mode === "cles"){
+    if (!p.cle) return false;
+    if (etat.couleurs === "poles" && !etat.groupes.has(p.g)) return false;
+    return true;
+  }
+  if (etat.egoSet){
+    if (!etat.egoSet.has(i)) return false;
+    if (i === etat.sel.id || p.cle) return true;
+    const direct = compteLien.get(cleLien(etat.sel.id, i)) || 0;
+    if (direct) return direct >= etat.minEgo;                       // correspondant direct : assez de lettres avec la personne
+    return etat.ego === 2 && n >= etat.min;                         // second cercle : personnes assez actives
+  }
   if (etat.sel && etat.sel.type === "p" && etat.sel.id === i) return true;
   if (etat.sel && etat.sel.type === "chemin" && etat.sel.noeuds.includes(i)) return true;
   if (etat.sel && etat.sel.type === "l" && (liens.get(etat.sel.k).a === i || liens.get(etat.sel.k).b === i)) return true;
@@ -198,13 +286,19 @@ const rendu = new Ctor(graphe, $("#sigma"), {
   nodeReducer: (n, a) => {
     const i = +n;
     if (!visible(i)) return {...a, hidden: true};
-    const c = compte.get(i), r = {...a, color: couleurDe(i), size: 2 + Math.sqrt(c) * 1.1};
-    if (P[i].cle){ r.forceLabel = etat.noms; r.zIndex = 2; }
+    const c = compte.get(i);
+    let taille = etat.mode === "cles" ? Math.min(17, 3 + Math.sqrt(c) * 0.32) : 2 + Math.sqrt(c) * 1.1;
+    if (egoActif && etat.sel && etat.sel.type === "p"){
+      // réseau personnel : taille = lettres échangées avec la personne centrale
+      taille = i === etat.sel.id ? 18 : Math.min(15, 2.5 + Math.sqrt(compteLien.get(cleLien(etat.sel.id, i)) || 0) * 1.1);
+    }
+    const r = {...a, color: couleurDe(i), size: taille};
+    if (P[i].cle){ r.forceLabel = etat.mode === "cles" ? (etat.noms && tetesDePole.has(i)) : etat.noms; r.zIndex = 2; }
     const s = etat.sel;
     if (s && s.type !== "s"){
       const enjeu = (s.type === "p" && s.id === i) || (s.type === "l" && voisins.has(i)) || (s.type === "chemin" && voisins.has(i));
       if (enjeu){ r.highlighted = true; r.forceLabel = true; r.zIndex = 3; }
-      else if (s.type === "p" && voisins.has(i)) r.forceLabel = r.forceLabel || c >= 10 || !!etat.egoSet;
+      else if (s.type === "p" && voisins.has(i)) r.forceLabel = egoActif ? egoNoms.has(i) : (r.forceLabel || c >= 10);
       else if (!etat.egoSet){ r.color = css("--line"); r.label = ""; r.forceLabel = false; r.zIndex = 0; r.size = Math.min(r.size, 3); }
     }
     return r;
@@ -213,11 +307,14 @@ const rendu = new Ctor(graphe, $("#sigma"), {
     const n = compteLien.get(a.k);
     const [s, t] = graphe.extremities(e);
     if (!n || !visible(+s) || !visible(+t)) return {...a, hidden: true};
-    const r = {...a, size: 0.4 + Math.log(1 + n) * 0.9, color: css("--bar") || "#bbb"};
+    if (etat.mode === "cles" && n < etat.minCles) return {...a, hidden: true};
+    const r = etat.mode === "cles"
+      ? {...a, size: 0.4 + Math.log(1 + n) * 0.8, color: melange(css("--bar") || "#b9a88d", css("--bg") || "#f6f1e7", 0.75)}
+      : {...a, size: 0.3 + Math.log(1 + n) * 0.7, color: melange(css("--bar") || "#b9a88d", css("--bg") || "#f6f1e7", 0.6)};
     const sel = etat.sel;
     if (sel && sel.type !== "s"){
       const lie = (sel.type === "p" && (sel.id === +s || sel.id === +t)) || (sel.type === "l" && sel.k === a.k) || (sel.type === "chemin" && sel.liens.includes(a.k));
-      if (lie){ r.color = css("--accent"); r.zIndex = 2; if (sel.type === "chemin") r.size += 2; }
+      if (lie){ r.color = egoActif ? melange(css("--accent"), css("--bg") || "#f6f1e7", 0.45) : css("--accent"); r.zIndex = 2; if (sel.type === "chemin") r.size += 2; }
       else r.color = css("--line");
     }
     return r;
@@ -228,10 +325,54 @@ const FA2 = graphologyLibrary.layoutForceAtlas2;
 const reglages = Object.assign(FA2.inferSettings(graphe), {barnesHutOptimize: graphe.order > 1500, gravity: 1.5, scalingRatio: 8, slowDown: 3, edgeWeightInfluence: 0.6});
 let tour = 0; const TOURS = 30;
 function etape(){
+  if (etat.mode !== "complet" || egoActif){ setTimeout(etape, 300); return; }     // calcul suspendu (vue « Figures clés » ou réseau personnel)
+  $("#chargement").style.display = "flex";
   FA2.assign(graphe, {iterations: 10, settings: reglages, getEdgeWeight: "weight"});
-  $("#chargement").textContent = "Calcul de la disposition… " + Math.round(100 * ++tour / TOURS) + " %";
+  $("#chargement").textContent = "Calcul de la disposition du réseau complet… " + Math.round(100 * ++tour / TOURS) + " %";
   if (tour < TOURS) setTimeout(etape, 0);
-  else { $("#chargement").style.display = "none"; if (etat.sel && etat.sel.type === "p") centrer(etat.sel.id); }
+  else {
+    positionsFA = new Map(); graphe.forEachNode((n, a) => positionsFA.set(n, [a.x, a.y]));
+    $("#chargement").style.display = "none"; rendu.getCamera().animatedReset();
+    if (etat.sel && etat.sel.type === "p") setTimeout(() => centrer(etat.sel.id), 400);
+  }
+}
+let faLance = false;
+function changerMode(m){
+  if (m === etat.mode) return;
+  etat.mode = m;
+  $("#mode").value = m;
+  if (m === "complet" && !faLance){ faLance = true; tour = 0; setTimeout(etape, 30); }
+  appliquerPositions();
+  majLibellesMin();
+  rendu.getCamera().animatedReset({duration: 300});
+  maj();
+}
+function majLibellesMin(){
+  const c = etat.mode === "cles", e = !!etat.egoSet;
+  $("#lib-min").textContent = e ? "lettres min. avec la personne" : c ? "lettres min. par lien" : "lettres min. par personne";
+  const v = e ? etat.minEgo : c ? etat.minCles : etat.min;
+  $("#min").value = v; $("#vmin").textContent = v;
+  $("#aide-mode").textContent = c
+    ? "Les 89 figures clés, placées par pôle sur une carte schématique ; traits = lettres échangées entre elles. Cliquez une figure, puis « Voir tout son réseau » pour ses autres correspondants."
+    : "Toutes les personnes (" + nf(total.filter(Boolean).length) + "). Utilisez « réseau personnel » sur une fiche pour isoler un entourage.";
+}
+
+// Noms des pôles en fond de carte (vue « Figures clés »)
+const calquePoles = document.createElement("div");
+calquePoles.id = "calque-poles"; calquePoles.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:1";
+$("#vues").appendChild(calquePoles);
+function dessinerPoles(){
+  if (etat.mode !== "cles" || etat.vue !== "graphe"){ calquePoles.innerHTML = ""; return; }
+  const parPole = {};
+  for (const [i, xy] of geoPos) if (visible(i)) (parPole[P[i].g] = parPole[P[i].g] || []).push(xy);
+  let h = "";
+  for (const [g, pts] of Object.entries(parPole)){
+    const vp = pts.map(([x, y]) => rendu.graphToViewport({x, y}));
+    const cx = vp.reduce((s, p) => s + p.x, 0) / vp.length, haut = Math.min(...vp.map(p => p.y));
+    const couleur = etat.couleurs === "poles" ? (COULEURS[g] || COULEURS.autre) : css("--muted");
+    h += `<div style="position:absolute;left:${cx}px;top:${haut - 34}px;transform:translateX(-50%);font:italic 13px Georgia,serif;color:${couleur};opacity:.75;white-space:nowrap;letter-spacing:.04em;text-transform:uppercase">${esc(NOMS_GROUPES[g] || g)}</div>`;
+  }
+  calquePoles.innerHTML = h;
 }
 
 // Communautés (Louvain, sur l'ensemble du réseau)
@@ -267,6 +408,7 @@ rendu.on("leaveEdge", () => bulle.style.display = "none");
 document.addEventListener("mousemove", ev => { bulle.style.left = Math.min(ev.clientX + 14, innerWidth - 330) + "px"; bulle.style.top = ev.clientY + 14 + "px"; });
 rendu.on("clickNode", ({node}) => choisirPersonne(+node));
 rendu.on("clickEdge", ({edge}) => choisirLien(graphe.getEdgeAttribute(edge, "k")));
+rendu.on("afterRender", dessinerPoles);
 rendu.on("clickStage", () => { etat.sel = null; etat.panneau = null; etat.ego = 0; maj(); });
 
 function centrer(i){
@@ -275,10 +417,11 @@ function centrer(i){
   if (pos) rendu.getCamera().animate({x: pos.x, y: pos.y, ratio: 0.35}, {duration: 500});
 }
 function choisirPersonne(i, recentrer){
+  if (etat.mode === "cles" && !P[i].cle){ etat.ego = 1; changerMode("complet"); }
   etat.sel = {type: "p", id: i}; etat.panneau = null; etat.lieu = null;
   maj(); if (recentrer) centrer(i);
 }
-function choisirLien(k){ etat.sel = {type: "l", k}; etat.panneau = null; etat.ego = 0; etat.lieu = null; maj(); }
+function choisirLien(k){ const e0 = liens.get(k); if (etat.mode === "cles" && !(P[e0.a].cle && P[e0.b].cle)) changerMode("complet"); etat.sel = {type: "l", k}; etat.panneau = null; etat.ego = 0; etat.lieu = null; maj(); }
 
 // ---------------------------------------------------------------- Dates, citations, fiabilité
 function dateFr(d){
@@ -423,6 +566,7 @@ function panneauPersonne(box, i){
       <select class="champ" id="ego2" style="width:auto" ${etat.ego ? "" : "disabled"}><option value="1" ${etat.ego !== 2 ? "selected" : ""}>correspondants</option><option value="2" ${etat.ego === 2 ? "selected" : ""}>+ leurs correspondants</option></select>
     </div>
     <div class="ligne">
+      ${etat.mode === "cles" ? `<button class="btn petit actif" id="b-reseau1" title="Passer au réseau complet, limité à cette personne et à ses correspondants">Voir tout son réseau</button>` : ""}
       <button class="btn petit ${dansCmp ? "actif" : ""}" id="b-cmp1">${dansCmp ? "✓ dans la comparaison" : "＋ comparer"}</button>
       <button class="btn petit" id="b-tab1">lettres en tableau</button>
       <button class="btn petit" id="b-sig1">signaler une erreur</button>
@@ -437,6 +581,7 @@ function panneauPersonne(box, i){
   $("#ego1").onchange = e => { etat.ego = e.target.checked ? +$("#ego2").value : 0; maj(); };
   $("#ego2").onchange = e => { etat.ego = +e.target.value; maj(); };
   $("#b-cmp1").onclick = () => { basculerComparaison(i); };
+  const br = $("#b-reseau1"); if (br) br.onclick = () => { etat.ego = 1; changerMode("complet"); };
   $("#b-tab1").onclick = () => changerVue("tableau");
   $("#b-sig1").onclick = () => signalerPersonne(i);
   champPersonne($("#chemin-vers"), $("#chemin-sugg"), j => chercherChemin(i, j));
@@ -483,6 +628,7 @@ function chercherChemin(a, b){
   if (!prec.has(b) && a !== b){ toast(`Aucun chemin entre ${P[a].n} et ${P[b].n} sur ${etat.debut}–${etat.fin}`); return; }
   const noeuds = [b]; while (noeuds[0] !== a) noeuds.unshift(prec.get(noeuds[0]));
   const ls = noeuds.slice(1).map((y, k) => cleLien(noeuds[k], y));
+  if (etat.mode === "cles" && noeuds.some(x => !P[x].cle)) changerMode("complet");
   etat.sel = {type: "chemin", noeuds, liens: ls}; etat.ego = 0; etat.panneau = null; maj();
 }
 function panneauChemin(box){
@@ -918,8 +1064,9 @@ $("#debut").min = $("#fin").min = A0; $("#debut").max = $("#fin").max = A1;
 $("#debut").oninput = e => fixerPeriode(+e.target.value, Math.max(+e.target.value, etat.fin));
 $("#fin").oninput = e => fixerPeriode(Math.min(etat.debut, +e.target.value), +e.target.value);
 $("#tout").onclick = () => fixerPeriode(A0, A1);
-$("#min").oninput = e => { etat.min = +e.target.value; maj(); };
-$("#seulcles").onchange = e => { etat.seulCles = e.target.checked; maj(); };
+$("#min").oninput = e => { if (etat.egoSet) etat.minEgo = +e.target.value; else if (etat.mode === "cles") etat.minCles = +e.target.value; else etat.min = +e.target.value; $("#vmin").textContent = e.target.value; maj(); };
+$("#mode").onchange = e => changerMode(e.target.value);
+
 $("#noms").onchange = e => { etat.noms = e.target.checked; maj(); };
 $("#fiabilite").onchange = e => { etat.fiab = e.target.value; maj(); };
 $("#couleurs").onchange = e => { etat.couleurs = e.target.value; if (etat.couleurs === "communautes") calculerCommunautes(); dessinerGroupes(); maj(); };
@@ -979,9 +1126,14 @@ $("#b-aide").onclick = aide;
 
 // ---------------------------------------------------------------- Mise à jour générale
 function maj(){
-  $("#vdebut").textContent = etat.debut; $("#vfin").textContent = etat.fin; $("#vmin").textContent = etat.min;
+  $("#vdebut").textContent = etat.debut; $("#vfin").textContent = etat.fin;
   if (etat.sel && etat.sel.type !== "p") etat.ego = 0;
   recompter(); voisins = voisinsSel();
+  majLibellesMin();
+  const egoVoulu = !!(etat.egoSet && etat.sel && etat.sel.type === "p");
+  if (egoVoulu) $("#chargement").style.display = "none";
+  if (egoVoulu){ dispositionEgo(); if (!maj.egoAvant || maj.egoAvant !== etat.sel.id + ":" + etat.ego) rendu.getCamera().animatedReset({duration: 300}); maj.egoAvant = etat.sel.id + ":" + etat.ego; }
+  else if (egoActif){ appliquerPositions(); maj.egoAvant = null; rendu.getCamera().animatedReset({duration: 300}); }
   rendu.refresh(); dessinerFrise(); afficherDetail();
   if (etat.vue === "tableau") dessinerTableau();
   if (etat.vue === "carte") dessinerCarte();
@@ -993,14 +1145,15 @@ function toutRedessiner(){ rendu.refresh(); dessinerFrise(); afficherDetail(); i
 // ---------------------------------------------------------------- Démarrage
 depuisAdresse();
 $("#debut").value = etat.debut; $("#fin").value = etat.fin; $("#min").value = etat.min;
-$("#seulcles").checked = etat.seulCles; $("#fiabilite").value = etat.fiab; $("#couleurs").value = etat.couleurs;
+$("#mode").value = etat.mode; $("#fiabilite").value = etat.fiab; $("#couleurs").value = etat.couleurs;
 if (etat.couleurs === "communautes") calculerCommunautes();
 dessinerGroupes(); dessinerThemes(); legendeFiabilite();
 $("#stats").textContent = `${nf(L.length)} lettres · ${nf(total.filter(Boolean).length)} personnes · ${D.sources.length} sources · données du ${D.genere}`;
 window.addEventListener("resize", () => { dessinerFrise(); if (carte) carte.invalidateSize(); });
 // lien collé dans la barre d'adresse : on recharge la vue décrite
 window.addEventListener("hashchange", () => { if (location.hash !== versAdresse.dernier) location.reload(); });
+appliquerPositions(); majLibellesMin();
 if (etat.vue !== "graphe") changerVue(etat.vue); else maj();
 if (etat.cheminDemande) chercherChemin(...etat.cheminDemande);
-setTimeout(etape, 50);
+if (etat.mode === "complet"){ faLance = true; setTimeout(etape, 50); } else $("#chargement").style.display = "none";
 if (!stocke.lire("aide-vue", false) && !location.hash) setTimeout(aide, 400);
