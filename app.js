@@ -10,11 +10,12 @@ const DEPOT = "https://github.com/exit-the-simulation/epistolaire-reforme";
 const COULEURS = {
   "wittenberg":"#b5452c","sud-allemand":"#d08a3c","zurich":"#2f6f9f","bale":"#4f9a8f","berne":"#7a8f3a",
   "geneve":"#6b4c9a","strasbourg":"#c2577f","constance":"#3f8f5a","saint-gall":"#8a6d3b","refuge":"#5b7fbf",
-  "angleterre":"#9c3f5f","humaniste":"#c9a227","autre":"#9a948a"
+  "angleterre":"#9c3f5f","humaniste":"#c9a227","catholique":"#5a5a8c","radical":"#2e8b57","princes":"#a0522d","france":"#1f6f8b","autre":"#9a948a"
 };
 const NOMS_GROUPES = {"wittenberg":"Wittenberg","sud-allemand":"Allemagne du Sud","zurich":"Zurich","bale":"Bâle","berne":"Berne",
   "geneve":"Genève et Suisse romande","strasbourg":"Strasbourg","constance":"Constance","saint-gall":"Saint-Gall","refuge":"Réfugiés italiens et polonais",
-  "angleterre":"Angleterre","humaniste":"Humanistes","autre":"Autres"};
+  "angleterre":"Angleterre et Écosse","humaniste":"Humanistes","catholique":"Adversaires catholiques","radical":"Réforme radicale",
+  "princes":"Princes et souverains","france":"France","autre":"Autres"};
 const PALETTE_COMM = ["#b5452c","#2f6f9f","#6b4c9a","#3f8f5a","#d08a3c","#c2577f","#4f9a8f","#8a6d3b","#5b7fbf","#9c3f5f","#7a8f3a","#c9a227"];
 const THEMES = {"politique":"Politique","théologique":"Théologique","personnel":"Personnel / biographique"};
 const MOIS = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
@@ -572,6 +573,19 @@ function panneauSources(box, k){
   box.querySelectorAll("[data-filtre]").forEach(el => el.onclick = () => { etat.sel = {type: "s", id: +el.dataset.filtre}; etat.panneau = null; maj(); });
   const tb = box.querySelector("#toutessources"); if (tb) tb.onclick = () => { etat.panneau = "sources"; maj(); };
 }
+function auditHTML(){
+  const A = D.audit || {}, cs = Object.keys(A);
+  if (!cs.length) return "";
+  const NOMS = {zwingli:"Zwingli", calvin:"Calvin", luther_wabr:"Luther (WA Br)", luther_burkhardt:"Luther (Burkhardt)", erasme:"Érasme (Allen)", rhenanus:"Rhenanus",
+    herminjard:"Herminjard", vadian:"Vadian", blaurer:"Blaurer", lenz_bucer:"Bucer–Hesse (Lenz)"};
+  const p = x => x === null || x === undefined ? "—" : Math.round(100 * x) + " %";
+  return `<h2>Audit des extractions (échantillon contrôlé sur les pages imprimées)</h2>
+    <p class="petit">25 lettres tirées au hasard par corpus, comparées à l'édition imprimée. « Grave » : numéro, date, expéditeur ou destinataire faux (intervalle de confiance à 95 % entre parenthèses : l'échantillon est petit). Mesuré <i>avant</i> les corrections qui ont suivi l'audit.</p>
+    <table class="petit" style="border-collapse:collapse;width:100%"><tr class="muted"><td>Corpus</td><td>date</td><td>exp.</td><td>dest.</td><td>lieu</td><td>grave</td></tr>` +
+    cs.map(c => { const ch = A[c].champs, g = A[c].graves;
+      return `<tr style="border-top:1px dotted var(--line)"><td>${esc(NOMS[c] || c)}</td><td>${p(ch.date_ok.taux)}</td><td>${p(ch.expediteur_ok.taux)}</td><td>${p(ch.destinataire_ok.taux)}</td><td>${p(ch.lieu_ok.taux)}</td><td>${g.k}/${A[c].n} <span class="muted">(${p(g.ic[0])}–${p(g.ic[1])})</span></td></tr>`; }).join("") +
+    `</table><p class="petit muted">Une date « non exacte » est le plus souvent juste mais moins précise que l'édition (jour ou mois perdu). Détail : <code>docs/audit.md</code>.</p>`;
+}
 function panneauLimites(box){
   const parSrc = new Map(); L.forEach(l => parSrc.set(l[5], (parSrc.get(l[5]) || 0) + 1));
   const srcs = [...parSrc.entries()].sort((a, b) => b[1] - a[1]), maxS = srcs[0][1];
@@ -589,6 +603,7 @@ function panneauLimites(box){
     <h2>3. Fiabilité</h2>
     <div class="chiffres petit"><span>Date exacte</span><b>${nf(prec[0])}</b><span>Au mois près</span><b>${nf(prec[1])}</b><span>À l'année près</span><b>${nf(prec[2])}</b><span>Date estimée ou restituée</span><b>${nf(prec[3])}</b><span>Marquées « à vérifier »</span><b>${nf(doute)}</b><span>Issues d'extractions automatiques</span><b>${nf(extr)} (${Math.round(100 * extr / L.length)} %)</b></div>
     <p class="petit">Les extractions du projet (OCR de volumes imprimés : Zwingli, Calvin, Luther WA Br, Érasme, Herminjard, Vadian, Blaurer, Rhenanus, Lenz) n'ont pas été relues. Les numéros, dates et noms peuvent contenir des erreurs ; chaque lettre renvoie à la page numérisée pour vérification. Le menu « Fiabilité des données » permet d'exclure les dates estimées ou toutes les données douteuses.</p>
+    ${auditHTML()}
     <h2>4. Personnes</h2>
     <p class="petit">Une même personne peut apparaître sous plusieurs graphies (Butzer, Bucerus…). Les figures clés sont identifiées par leur numéro GND ; les autres sont rapprochées automatiquement quand c'est sûr. Les cas douteux sont listés dans « Doublons » pour validation. Les institutions (conseils, villes) figurent comme correspondants.</p>
     <h2>5. Silences et déséquilibres</h2>
